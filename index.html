@@ -24,6 +24,8 @@
             --card-bg: #ffffff;
             --header-height: 80px;
             --nav-height: 60px;
+            --travel-bg: #e0f2fe; /* light blue for travel */
+            --travel-border: #93c5fd; /* blue-300 */
         }
 
         /* Essential Mobile App Shell CSS */
@@ -83,6 +85,18 @@
             box-shadow: 0 2px 4px -1px rgba(0, 0, 0, 0.05);
         }
         
+        /* Travel/Activity Card Styling */
+        .activity-card {
+            background-color: var(--card-bg);
+            border-left: 4px solid var(--primary-color);
+            border-color: #cbd5e1; /* slate-300 default */
+        }
+        .travel-card {
+            background-color: var(--travel-bg);
+            border-left: 4px solid var(--travel-border);
+            border-color: #22c55e; /* green-500 for transit */
+        }
+
         /* Time Highlight - Make it look like a badge */
         .time-highlight { 
             font-weight: 700; 
@@ -130,6 +144,17 @@
         /* Utility Classes */
         .tab-content, .plan-page { display: none; }
         .active { display: block; }
+        /* Style for sub-nav buttons when active */
+        .sub-nav-item.active {
+            background-color: var(--primary-color);
+            color: white;
+            font-weight: 500;
+        }
+        .sub-nav-item {
+            color: #475569;
+            background-color: #e2e8f0;
+            transition: all 0.2s;
+        }
 
     </style>
     
@@ -154,9 +179,31 @@
             item.className = 'toast-item';
             item.textContent = message;
             if (type === 'error') item.style.backgroundColor = '#ef4444';
+            else item.style.backgroundColor = '#22c55e'; // green-500 for success
+            
+            // Basic toast styling for visibility
+            item.style.padding = '10px 15px';
+            item.style.borderRadius = '12px';
+            item.style.color = 'white';
+            item.style.margin = '5px auto';
+            item.style.opacity = '0';
+            item.style.transition = 'opacity 0.3s, transform 0.3s';
+            item.style.transform = 'translateY(20px)';
+            item.style.textAlign = 'center';
+            item.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)';
+
             container.prepend(item);
-            setTimeout(() => item.classList.add('show'), 10);
-            setTimeout(() => { item.classList.remove('show'); setTimeout(() => item.remove(), 300); }, 3000);
+            
+            setTimeout(() => {
+                item.style.opacity = '1';
+                item.style.transform = 'translateY(0)';
+            }, 10);
+            
+            setTimeout(() => { 
+                item.style.opacity = '0'; 
+                item.style.transform = 'translateY(-20px)';
+                setTimeout(() => item.remove(), 300); 
+            }, 3000);
         }
 
         // --- Core Functions Export to Window ---
@@ -175,7 +222,7 @@
             }
         };
         
-        // --- Expense Logic ---
+        // --- Expense Logic (Firestore) ---
         window.saveExp = async () => {
             if (!db || !userId) { showToast('錯誤：未連線至雲端。', 'error'); return; }
             const name = document.getElementById('exp-name').value.trim();
@@ -185,6 +232,7 @@
             if(!name || isNaN(amount) || amount <= 0) { showToast('請輸入有效內容。', 'error'); return; }
             
             try {
+                // Private data storage
                 await addDoc(collection(db, `artifacts/${appId}/users/${userId}/expenses`), {
                     name, amount, type, timestamp: Date.now()
                 });
@@ -194,48 +242,66 @@
         };
 
         window.delExp = async (id) => {
-             // Using custom UI replacement for confirm() is required, but for brevity here we use confirm temporarily.
-             if(confirm('確定刪除此記錄？')) {
+             // ** IMPORTANT: Custom modal UI is required instead of confirm() **
+             if(window.confirm('確定刪除此記錄？')) {
                  try { await deleteDoc(doc(db, `artifacts/${appId}/users/${userId}/expenses`, id)); showToast('已刪除'); }
                  catch(e) { console.error(e); }
              }
         };
 
         window.clearExpHistory = async () => {
-             // Using custom UI replacement for confirm() is required, but for brevity here we use confirm temporarily.
-             if(confirm('確定清除所有記錄？')) {
-                 const q = query(collection(db, `artifacts/${appId}/users/${userId}/expenses`));
-                 const snapshot = await getDocs(q);
-                 snapshot.docs.forEach(d => deleteDoc(doc(db, `artifacts/${appId}/users/${userId}/expenses`, d.id)));
-                 showToast('已清除');
+             // ** IMPORTANT: Custom modal UI is required instead of confirm() **
+             if(window.confirm('確定清除所有記錄？')) {
+                 try {
+                    const q = query(collection(db, `artifacts/${appId}/users/${userId}/expenses`));
+                    const snapshot = await getDocs(q);
+                    // Batch deletion is ideal but using loop for simplicity within single-file constraint
+                    snapshot.docs.forEach(d => deleteDoc(doc(db, `artifacts/${appId}/users/${userId}/expenses`, d.id)));
+                    showToast('已清除');
+                 } catch(e) { console.error(e); showToast('清除失敗', 'error'); }
              }
         };
 
-        // --- List Logic ---
+        // --- List Logic (Firestore) ---
         window.addPack = async () => {
             const text = document.getElementById('new-pack').value.trim();
-            if(text && db) {
+            if(!text || !db) return;
+            try {
                 await addDoc(collection(db, `artifacts/${appId}/users/${userId}/packing`), { text, checked: false, timestamp: Date.now() });
                 document.getElementById('new-pack').value = '';
+            } catch(e) { console.error(e); showToast('新增打包項目失敗', 'error'); }
+        };
+        window.togPack = async (id, state) => { 
+            if(db) {
+                 try { await updateDoc(doc(db, `artifacts/${appId}/users/${userId}/packing`, id), { checked: !state }); }
+                 catch(e) { console.error(e); showToast('更新打包狀態失敗', 'error'); }
             }
         };
-        window.togPack = async (id, state) => { if(db) await updateDoc(doc(db, `artifacts/${appId}/users/${userId}/packing`, id), { checked: !state }); };
-        window.delPack = async (id) => { if(db) await deleteDoc(doc(db, `artifacts/${appId}/users/${userId}/packing`, id)); };
+        window.delPack = async (id) => { 
+            if(db) {
+                try { await deleteDoc(doc(db, `artifacts/${appId}/users/${userId}/packing`, id)); }
+                catch(e) { console.error(e); showToast('刪除打包項目失敗', 'error'); }
+            }
+        };
 
         window.addMemo = async () => {
             const text = document.getElementById('new-memo').value.trim();
-            if(text && db) {
+            if(!text || !db) return;
+            try {
                 await addDoc(collection(db, `artifacts/${appId}/users/${userId}/memos`), { text, timestamp: Date.now() });
                 document.getElementById('new-memo').value = '';
                 showToast('備忘已新增');
-            }
+            } catch(e) { console.error(e); showToast('新增備忘失敗', 'error'); }
         };
         window.delMemo = async (id) => { 
-            // Using custom UI replacement for confirm() is required, but for brevity here we use confirm temporarily.
-            if(db && confirm('刪除備忘？')) await deleteDoc(doc(db, `artifacts/${appId}/users/${userId}/memos`, id)); 
+            // ** IMPORTANT: Custom modal UI is required instead of confirm() **
+            if(db && window.confirm('刪除備忘？')) {
+                try { await deleteDoc(doc(db, `artifacts/${appId}/users/${userId}/memos`, id)); }
+                catch(e) { console.error(e); showToast('刪除備忘失敗', 'error'); }
+            }
         };
 
-        // --- Rendering ---
+        // --- Rendering (Data Listeners) ---
         function renderExps(exps) {
             const el = document.getElementById('expense-list');
             el.innerHTML = '';
@@ -295,7 +361,7 @@
                 c.insertAdjacentHTML('beforeend', `
                     <div class="flex items-center justify-between p-3 border-b border-gray-100 cursor-pointer transition duration-100 hover:bg-sky-50" onclick="togPack('${i.id}', ${i.checked})">
                         <div class="flex items-center gap-3">
-                            <div class="w-5 h-5 rounded-full border-2 ${i.checked?'bg-sky-500 border-sky-500':'border-gray-300'} flex items-center justify-center text-white text-xs transition duration-100">${i.checked?'<i class="fas fa-check"></i>':''}</div>
+                            <div class="w-5 h-5 rounded-full border-2 ${i.checked?'bg-green-500 border-green-500':'border-gray-300'} flex items-center justify-center text-white text-xs transition duration-100">${i.checked?'<i class="fas fa-check"></i>':''}</div>
                             <span class="${i.checked?'text-gray-400 line-through':'text-slate-700'}">${i.text}</span>
                         </div>
                         <button onclick="event.stopPropagation();delPack('${i.id}')" class="text-gray-300 hover:text-red-500 transition duration-100"><i class="fas fa-times-circle"></i></button>
@@ -332,6 +398,9 @@
                         onSnapshot(query(collection(db, `artifacts/${appId}/users/${userId}/expenses`)), (s) => renderExps(s.docs.map(d=>({id:d.id,...d.data()}))));
                         onSnapshot(query(collection(db, `artifacts/${appId}/users/${userId}/packing`)), (s) => renderPack(s.docs.map(d=>({id:d.id,...d.data()}))));
                         onSnapshot(query(collection(db, `artifacts/${appId}/users/${userId}/memos`)), (s) => renderMemo(s.docs.map(d=>({id:d.id,...d.data()}))));
+                        
+                        // Display user ID for debugging/sharing
+                        document.getElementById('user-id-display').innerText = `使用者ID: ${userId}`;
                     } else {
                         signInAnonymously(auth).catch(console.error);
                     }
@@ -345,6 +414,7 @@
             // Initial Nav & View
             nav('plan');
             switchPlanPage('overview');
+            document.getElementById('pack-switch').classList.add('bg-sky-50','text-sky-600','font-bold'); // Set initial list view
             document.getElementById('label-cash').classList.add('active-type'); // Set initial radio style
             setTimeout(() => document.getElementById('splash-screen').style.opacity='0', 500);
             setTimeout(() => document.getElementById('splash-screen').style.display='none', 800);
@@ -387,7 +457,7 @@
             c.innerHTML = pois.map(p => `
                 <button onclick="openMap('${p.q}')" class="bg-white p-3 rounded-xl border border-slate-100 shadow-sm text-left transition-transform active:scale-[0.98]">
                     <div class="font-bold text-slate-700 text-sm truncate">${p.n}</div>
-                    <div class="text-xs text-sky-500 mt-1"><i class="fas fa-location-arrow"></i> 導航</div>
+                    <div class="text-xs text-sky-500 mt-1"><i class="fas fa-location-arrow mr-1"></i> 導航</div>
                 </button>
             `).join('');
         }
@@ -397,7 +467,6 @@
             document.getElementById(`plan-page-${id}`).classList.add('active');
             document.querySelectorAll('.sub-nav-item').forEach(e => e.classList.remove('active'));
             document.getElementById(`subnav-${id}`).classList.add('active');
-            // document.getElementById('plan-sub-nav').scrollLeft = document.getElementById(`subnav-${id}`).offsetLeft - 20; // Auto-scroll sub-nav
             window.scrollTo(0,0);
         }
 
@@ -424,7 +493,9 @@
             const r = parseFloat(document.getElementById('exchange-rate').value);
             if(v) {
                 try {
-                    const res = new Function('return ' + v)();
+                    // Sanitize input for safety before execution
+                    const safeV = v.replace(/[^-()\d/*+.]/g, '');
+                    const res = new Function('return ' + safeV)();
                     document.getElementById('res-twd').innerText = `≈ TWD $${Math.floor(res*r).toLocaleString()}`;
                     document.getElementById('exp-amt').value = Math.floor(res);
                 } catch(e){}
@@ -433,7 +504,6 @@
                 document.getElementById('exp-amt').value = '';
             }
         };
-
         // Radio Button Style Logic
         document.addEventListener('DOMContentLoaded', () => {
              document.querySelectorAll('input[name="payment-type"]').forEach(radio => {
@@ -448,7 +518,7 @@
 </head>
 <body>
 
-    <!-- Toast -->
+    <!-- Toast Container (for messages) -->
     <div id="toast-container" class="fixed top-3 z-[9999] w-full max-w-sm left-1/2 -translate-x-1/2"></div>
 
     <!-- Splash Screen (Snow Fairy Theme) -->
@@ -480,7 +550,8 @@
             <h1 class="text-2xl font-bold text-slate-800">北海道冬旅</h1>
             <p class="text-xs text-slate-400 tracking-wider font-['Lato']">Mar 19 - 24, 2026</p>
         </div>
-        <span class="text-xs bg-sky-100 text-sky-600 px-3 py-1 rounded-full font-bold shadow-inner">6 Days Trip</span>
+        <!-- User ID display for collaborative mode -->
+        <span id="user-id-display" class="text-[10px] bg-slate-100 text-slate-500 px-2 py-1 rounded-full font-mono max-w-[50%] truncate"></span>
     </header>
 
     <main class="px-4" id="app">
@@ -562,15 +633,25 @@
             <div id="plan-page-day1" class="plan-page pt-6">
                 <div id="weather-day-1"></div>
                 <div class="space-y-4">
-                    <!-- Item -->
-                    <div class="card p-4 flex gap-4">
+                    <!-- Event: Arrival -->
+                    <div class="card activity-card p-4 flex gap-4 border-l-4 border-red-500">
                         <div class="time-highlight">11:30</div>
                         <div class="flex-1">
                             <h4 class="font-bold text-slate-800">抵達函館機場 (HKD)</h4>
                             <p class="text-sm text-slate-500 mt-1">預計 11:10 抵達，準備入境。</p>
                         </div>
                     </div>
-                    <div class="card p-4 flex gap-4">
+                    <!-- Travel: Airport to Hotel -->
+                    <div class="card travel-card p-4 flex gap-4">
+                        <div class="time-highlight bg-green-200 text-green-800">30 Min</div>
+                        <div class="flex-1">
+                            <h4 class="font-bold text-green-800"><i class="fas fa-bus-simple mr-1"></i> 函館機場巴士</h4>
+                            <p class="text-sm text-green-700 mt-1">前往函館車站，單程約 ¥480。</p>
+                            <button onclick="openMap('函館巴士路線')" class="mt-2 text-xs bg-green-100 text-green-700 px-3 py-1 rounded-full"><i class="fas fa-route mr-1"></i>查看路線</button>
+                        </div>
+                    </div>
+                    <!-- Event: Check-in / Lunch -->
+                    <div class="card activity-card p-4 flex gap-4 border-l-4 border-sky-500">
                         <div class="time-highlight">13:00</div>
                         <div class="flex-1">
                             <h4 class="font-bold text-slate-800">JR Inn Hakodate（入住/暫存）</h4>
@@ -578,7 +659,8 @@
                             <button onclick="openMap('JR Inn Hakodate')" class="mt-2 text-xs bg-sky-50 text-sky-600 px-3 py-1 rounded-full"><i class="fas fa-location-arrow mr-1"></i>導航</button>
                         </div>
                     </div>
-                    <div class="card p-4 flex gap-4 border-l-4 border-red-400">
+                    <!-- Event: Lunch -->
+                    <div class="card activity-card p-4 flex gap-4 border-l-4 border-red-400">
                         <div class="time-highlight">13:23</div>
                         <div class="flex-1">
                             <h4 class="font-bold text-slate-800">幸運小丑漢堡 (午餐)</h4>
@@ -586,7 +668,16 @@
                             <button onclick="openMap('幸運小丑漢堡 函館站前店')" class="mt-2 text-xs bg-red-50 text-red-600 px-3 py-1 rounded-full"><i class="fas fa-utensils mr-1"></i>導航</button>
                         </div>
                     </div>
-                    <div class="card p-4 flex gap-4">
+                    <!-- Travel: Tram to Goryokaku -->
+                    <div class="card travel-card p-4 flex gap-4">
+                        <div class="time-highlight bg-green-200 text-green-800">20 Min</div>
+                        <div class="flex-1">
+                            <h4 class="font-bold text-green-800"><i class="fas fa-train-subway mr-1"></i> 函館市電 (路面電車)</h4>
+                            <p class="text-sm text-green-700 mt-1">從函館站前搭乘電車至五稜郭公園前站。</p>
+                        </div>
+                    </div>
+                    <!-- Event: Goryokaku Tower -->
+                    <div class="card activity-card p-4 flex gap-4 border-l-4 border-sky-500">
                         <div class="time-highlight">14:51</div>
                         <div class="flex-1">
                             <h4 class="font-bold text-slate-800">五稜郭塔</h4>
@@ -594,7 +685,16 @@
                             <button onclick="openMap('五稜郭塔')" class="mt-2 text-xs bg-sky-50 text-sky-600 px-3 py-1 rounded-full"><i class="fas fa-eye mr-1"></i>導航</button>
                         </div>
                     </div>
-                    <div class="card p-4 flex gap-4">
+                    <!-- Travel: Tram to Bay Area -->
+                    <div class="card travel-card p-4 flex gap-4">
+                        <div class="time-highlight bg-green-200 text-green-800">15 Min</div>
+                        <div class="flex-1">
+                            <h4 class="font-bold text-green-800"><i class="fas fa-train-subway mr-1"></i> 函館市電</h4>
+                            <p class="text-sm text-green-700 mt-1">搭乘至十字街站。</p>
+                        </div>
+                    </div>
+                    <!-- Event: Hachiman-zaka Slope -->
+                    <div class="card activity-card p-4 flex gap-4 border-l-4 border-sky-500">
                         <div class="time-highlight">16:31</div>
                         <div class="flex-1">
                             <h4 class="font-bold text-slate-800">八幡坂</h4>
@@ -602,12 +702,21 @@
                             <button onclick="openMap('八幡坂')" class="mt-2 text-xs bg-sky-50 text-sky-600 px-3 py-1 rounded-full"><i class="fas fa-camera-retro mr-1"></i>導航</button>
                         </div>
                     </div>
-                    <div class="card p-4 flex gap-4">
+                    <!-- Event: Mt. Hakodate Night View -->
+                    <div class="card activity-card p-4 flex gap-4 border-l-4 border-yellow-500">
                         <div class="time-highlight">17:05</div>
                         <div class="flex-1">
                             <h4 class="font-bold text-slate-800">函館山纜車（觀景）</h4>
                             <p class="text-sm text-slate-500 mt-1">等待百萬夜景。</p>
-                            <button onclick="openMap('函館山纜車')" class="mt-2 text-xs bg-sky-50 text-sky-600 px-3 py-1 rounded-full"><i class="fas fa-star mr-1"></i>導航</button>
+                            <button onclick="openMap('函館山纜車')" class="mt-2 text-xs bg-yellow-50 text-yellow-600 px-3 py-1 rounded-full"><i class="fas fa-star mr-1"></i>導航</button>
+                        </div>
+                    </div>
+                    <!-- Travel: Return to Hotel -->
+                    <div class="card travel-card p-4 flex gap-4">
+                        <div class="time-highlight bg-green-200 text-green-800">45 Min</div>
+                        <div class="flex-1">
+                            <h4 class="font-bold text-green-800"><i class="fas fa-taxi mr-1"></i> 電車 + 步行 或 計程車</h4>
+                            <p class="text-sm text-green-700 mt-1">觀景後返回飯店休息。</p>
                         </div>
                     </div>
                 </div>
@@ -617,7 +726,8 @@
             <div id="plan-page-day2" class="plan-page pt-6">
                 <div id="weather-day-2"></div>
                 <div class="space-y-4">
-                    <div class="card p-4 flex gap-4">
+                    <!-- Event: Red Brick Warehouses -->
+                    <div class="card activity-card p-4 flex gap-4 border-l-4 border-sky-500">
                         <div class="time-highlight">08:24</div>
                         <div class="flex-1">
                             <h4 class="font-bold text-slate-800">金森紅磚倉庫</h4>
@@ -625,14 +735,25 @@
                             <button onclick="openMap('金森紅磚倉庫')" class="mt-2 text-xs bg-sky-50 text-sky-600 px-3 py-1 rounded-full">導航</button>
                         </div>
                     </div>
-                    <div class="card p-4 flex gap-4 border-l-4 border-teal-500 bg-teal-50">
+                    <!-- Event: Car Rental -->
+                    <div class="card activity-card p-4 flex gap-4 border-l-4 border-teal-500 bg-teal-50">
                         <div class="time-highlight bg-teal-500 text-white">09:00</div>
                         <div class="flex-1">
-                            <h4 class="font-bold text-teal-900">租車取車</h4>
+                            <h4 class="font-bold text-teal-900">租車取車 (函館站前)</h4>
                             <p class="text-sm text-teal-700 mt-1">開始三天的自駕行程。</p>
                         </div>
                     </div>
-                    <div class="card p-4 flex gap-4">
+                    <!-- Travel: Hakodate to Toya -->
+                    <div class="card travel-card p-4 flex gap-4">
+                        <div class="time-highlight bg-green-200 text-green-800">3 小時</div>
+                        <div class="flex-1">
+                            <h4 class="font-bold text-green-800"><i class="fas fa-car-side mr-1"></i> 自駕移動</h4>
+                            <p class="text-sm text-green-700 mt-1">從函館經高速公路前往洞爺湖，中途可在休息站用餐。</p>
+                            <button onclick="openMap('函館到洞爺湖路線')" class="mt-2 text-xs bg-green-100 text-green-700 px-3 py-1 rounded-full"><i class="fas fa-route mr-1"></i>規劃路線</button>
+                        </div>
+                    </div>
+                    <!-- Event: Showa-shinzan Bear Farm -->
+                    <div class="card activity-card p-4 flex gap-4 border-l-4 border-sky-500">
                         <div class="time-highlight">12:53</div>
                         <div class="flex-1">
                             <h4 class="font-bold text-slate-800">昭和新山熊牧場</h4>
@@ -640,7 +761,8 @@
                             <button onclick="openMap('昭和新山熊牧場')" class="mt-2 text-xs bg-sky-50 text-sky-600 px-3 py-1 rounded-full">導航</button>
                         </div>
                     </div>
-                    <div class="card p-4 flex gap-4">
+                    <!-- Event: Usuzan Ropeway -->
+                    <div class="card activity-card p-4 flex gap-4 border-l-4 border-sky-500">
                         <div class="time-highlight">13:54</div>
                         <div class="flex-1">
                             <h4 class="font-bold text-slate-800">洞爺湖有珠山口纜車</h4>
@@ -648,12 +770,21 @@
                             <button onclick="openMap('有珠山纜車')" class="mt-2 text-xs bg-sky-50 text-sky-600 px-3 py-1 rounded-full">導航</button>
                         </div>
                     </div>
-                    <div class="card p-4 flex gap-4">
+                    <!-- Travel: To Hotel -->
+                    <div class="card travel-card p-4 flex gap-4">
+                        <div class="time-highlight bg-green-200 text-green-800">15 Min</div>
+                        <div class="flex-1">
+                            <h4 class="font-bold text-green-800"><i class="fas fa-car-side mr-1"></i> 短程自駕</h4>
+                            <p class="text-sm text-green-700 mt-1">沿著湖邊開往旅館。</p>
+                        </div>
+                    </div>
+                    <!-- Event: Hotel Check-in -->
+                    <div class="card activity-card p-4 flex gap-4 border-l-4 border-yellow-500">
                         <div class="time-highlight">17:53</div>
                         <div class="flex-1">
                             <h4 class="font-bold text-slate-800">入住 WE Hotel Toya</h4>
-                            <p class="text-sm text-slate-500 mt-1">溫泉旅館Check-in。</p>
-                            <button onclick="openMap('WE Hotel Toya')" class="mt-2 text-xs bg-sky-50 text-sky-600 px-3 py-1 rounded-full">導航</button>
+                            <p class="text-sm text-slate-500 mt-1">享用晚餐與溫泉。</p>
+                            <button onclick="openMap('WE Hotel Toya')" class="mt-2 text-xs bg-yellow-50 text-yellow-600 px-3 py-1 rounded-full">導航</button>
                         </div>
                     </div>
                 </div>
@@ -663,7 +794,16 @@
             <div id="plan-page-day3" class="plan-page pt-6">
                 <div id="weather-day-3"></div>
                 <div class="space-y-4">
-                    <div class="card p-4 flex gap-4">
+                    <!-- Travel: Toya to Noboribetsu -->
+                    <div class="card travel-card p-4 flex gap-4">
+                        <div class="time-highlight bg-green-200 text-green-800">1.5 小時</div>
+                        <div class="flex-1">
+                            <h4 class="font-bold text-green-800"><i class="fas fa-car-side mr-1"></i> 自駕移動</h4>
+                            <p class="text-sm text-green-700 mt-1">從洞爺湖沿路前往登別。</p>
+                        </div>
+                    </div>
+                    <!-- Event: Hell Valley -->
+                    <div class="card activity-card p-4 flex gap-4 border-l-4 border-sky-500">
                         <div class="time-highlight">09:33</div>
                         <div class="flex-1">
                             <h4 class="font-bold text-slate-800">登別地獄谷</h4>
@@ -671,15 +811,33 @@
                             <button onclick="openMap('登別地獄谷')" class="mt-2 text-xs bg-sky-50 text-sky-600 px-3 py-1 rounded-full">導航</button>
                         </div>
                     </div>
-                    <div class="card p-4 flex gap-4">
+                    <!-- Travel: Noboribetsu to NIXE -->
+                    <div class="card travel-card p-4 flex gap-4">
+                        <div class="time-highlight bg-green-200 text-green-800">10 Min</div>
+                        <div class="flex-1">
+                            <h4 class="font-bold text-green-800"><i class="fas fa-car-side mr-1"></i> 短程自駕</h4>
+                            <p class="text-sm text-green-700 mt-1">移動至海洋公園。</p>
+                        </div>
+                    </div>
+                    <!-- Event: NIXE Ocean Park -->
+                    <div class="card activity-card p-4 flex gap-4 border-l-4 border-sky-500">
                         <div class="time-highlight">11:45</div>
                         <div class="flex-1">
-                            <h4 class="font-bold text-slate-800">尼克斯海洋公園</h4>
+                            <h4 class="font-bold text-slate-800">尼克斯海洋公園 (午餐)</h4>
                             <p class="text-sm text-slate-500 mt-1">歐洲城堡風格，企鵝遊行。</p>
                             <button onclick="openMap('尼克斯海洋公園')" class="mt-2 text-xs bg-sky-50 text-sky-600 px-3 py-1 rounded-full">導航</button>
                         </div>
                     </div>
-                    <div class="card p-4 flex gap-4">
+                    <!-- Travel: NIXE to Shiroi Koibito Park -->
+                    <div class="card travel-card p-4 flex gap-4">
+                        <div class="time-highlight bg-green-200 text-green-800">1.5 小時</div>
+                        <div class="flex-1">
+                            <h4 class="font-bold text-green-800"><i class="fas fa-car-side mr-1"></i> 自駕移動 (往札幌)</h4>
+                            <p class="text-sm text-green-700 mt-1">前往札幌市郊的景點。</p>
+                        </div>
+                    </div>
+                    <!-- Event: Shiroi Koibito Park -->
+                    <div class="card activity-card p-4 flex gap-4 border-l-4 border-sky-500">
                         <div class="time-highlight">15:08</div>
                         <div class="flex-1">
                             <h4 class="font-bold text-slate-800">白色戀人公園</h4>
@@ -687,18 +845,20 @@
                             <button onclick="openMap('白色戀人公園')" class="mt-2 text-xs bg-sky-50 text-sky-600 px-3 py-1 rounded-full">導航</button>
                         </div>
                     </div>
-                    <div class="card p-4 flex gap-4 border-l-4 border-yellow-400">
+                    <!-- Travel: Park to Hotel/Dinner -->
+                    <div class="card travel-card p-4 flex gap-4">
+                        <div class="time-highlight bg-green-200 text-green-800">30 Min</div>
+                        <div class="flex-1">
+                            <h4 class="font-bold text-green-800"><i class="fas fa-car-side mr-1"></i> 市區自駕</h4>
+                            <p class="text-sm text-green-700 mt-1">開車到札幌車站附近。</p>
+                        </div>
+                    </div>
+                    <!-- Event: Dinner / Hotel -->
+                    <div class="card activity-card p-4 flex gap-4 border-l-4 border-yellow-400">
                         <div class="time-highlight">17:01</div>
                         <div class="flex-1">
                             <h4 class="font-bold text-slate-800">Stellar Place（晚餐/購物）</h4>
-                            <p class="text-sm text-slate-500 mt-1">札幌車站上方的百貨公司。</p>
-                        </div>
-                    </div>
-                    <div class="card p-4 flex gap-4">
-                        <div class="time-highlight">20:05</div>
-                        <div class="flex-1">
-                            <h4 class="font-bold text-slate-800">入住 札幌京王普雷利亞飯店</h4>
-                            <p class="text-sm text-slate-500 mt-1">未來三晚的住宿。</p>
+                            <p class="text-sm text-slate-500 mt-1">札幌車站上方的百貨公司，並入住飯店。</p>
                         </div>
                     </div>
                 </div>
@@ -708,30 +868,50 @@
             <div id="plan-page-day4" class="plan-page pt-6">
                 <div id="weather-day-4"></div>
                 <div class="space-y-4">
-                    <div class="card p-4 flex gap-4 border-l-4 border-pink-400 bg-pink-50">
+                    <!-- Event: Long Drive Prep -->
+                    <div class="card activity-card p-4 flex gap-4 border-l-4 border-pink-400 bg-pink-50">
                         <div class="time-highlight bg-pink-500 text-white">08:00</div>
                         <div class="flex-1">
                             <h4 class="font-bold text-pink-900">長途自駕日 (往旭川/美瑛)</h4>
-                            <p class="text-sm text-pink-700 mt-1">今日行程較遠，請注意行車安全。</p>
+                            <p class="text-sm text-pink-700 mt-1">自駕約 2.5 小時，請注意行車安全。</p>
                         </div>
                     </div>
-                    <div class="card p-4 flex gap-4">
+                    <!-- Travel: Sapporo to Asahiyama Zoo -->
+                    <div class="card travel-card p-4 flex gap-4">
+                        <div class="time-highlight bg-green-200 text-green-800">2.5 小時</div>
+                        <div class="flex-1">
+                            <h4 class="font-bold text-green-800"><i class="fas fa-car-side mr-1"></i> 自駕移動</h4>
+                            <p class="text-sm text-green-700 mt-1">經高速公路前往旭川。</p>
+                        </div>
+                    </div>
+                    <!-- Event: Asahiyama Zoo -->
+                    <div class="card activity-card p-4 flex gap-4 border-l-4 border-sky-500">
                         <div class="time-highlight">10:45</div>
                         <div class="flex-1">
-                            <h4 class="font-bold text-slate-800">旭山動物園</h4>
+                            <h4 class="font-bold text-slate-800">旭山動物園 (午餐)</h4>
                             <p class="text-sm text-slate-500 mt-1">必看雪地中的動物，注意企鵝散步時間。</p>
                             <button onclick="openMap('旭山動物園')" class="mt-2 text-xs bg-sky-50 text-sky-600 px-3 py-1 rounded-full">導航</button>
                         </div>
                     </div>
-                    <div class="card p-4 flex gap-4">
+                    <!-- Travel: Zoo to Shirahige Waterfall -->
+                    <div class="card travel-card p-4 flex gap-4">
+                        <div class="time-highlight bg-green-200 text-green-800">1 小時</div>
+                        <div class="flex-1">
+                            <h4 class="font-bold text-green-800"><i class="fas fa-car-side mr-1"></i> 自駕移動</h4>
+                            <p class="text-sm text-green-700 mt-1">從旭川開往美瑛白金溫泉區。</p>
+                        </div>
+                    </div>
+                    <!-- Event: Shirahige Waterfall -->
+                    <div class="card activity-card p-4 flex gap-4 border-l-4 border-sky-500">
                         <div class="time-highlight">13:57</div>
                         <div class="flex-1">
                             <h4 class="font-bold text-slate-800">白鬚瀑布</h4>
-                            <p class="text-sm text-slate-500 mt-1">青池上游，冬天有結冰或雪景。</p>
+                            <p class="text-sm text-slate-500 mt-1">青池上游，觀賞冬天結冰的藍色瀑布。</p>
                             <button onclick="openMap('白鬚瀑布')" class="mt-2 text-xs bg-sky-50 text-sky-600 px-3 py-1 rounded-full">導航</button>
                         </div>
                     </div>
-                    <div class="card p-4 flex gap-4">
+                    <!-- Event: Blue Pond -->
+                    <div class="card activity-card p-4 flex gap-4 border-l-4 border-sky-500">
                         <div class="time-highlight">14:24</div>
                         <div class="flex-1">
                             <h4 class="font-bold text-slate-800">白金青池</h4>
@@ -739,18 +919,28 @@
                             <button onclick="openMap('白金青池')" class="mt-2 text-xs bg-sky-50 text-sky-600 px-3 py-1 rounded-full">導航</button>
                         </div>
                     </div>
-                    <div class="card p-4 flex gap-4 border-l-4 border-red-500 bg-red-50">
+                    <!-- Travel: Biei to Sapporo (Car Return) -->
+                    <div class="card travel-card p-4 flex gap-4">
+                        <div class="time-highlight bg-green-200 text-green-800">2.5 小時</div>
+                        <div class="flex-1">
+                            <h4 class="font-bold text-green-800"><i class="fas fa-car-side mr-1"></i> 自駕回程</h4>
+                            <p class="text-sm text-green-700 mt-1">從美瑛返回札幌市區。</p>
+                        </div>
+                    </div>
+                    <!-- Event: Car Return -->
+                    <div class="card activity-card p-4 flex gap-4 border-l-4 border-red-500 bg-red-50">
                         <div class="time-highlight bg-red-500 text-white">19:00</div>
                         <div class="flex-1">
-                            <h4 class="font-bold text-red-900">札幌還車</h4>
+                            <h4 class="font-bold text-red-900">札幌車站附近還車</h4>
                             <p class="text-sm text-red-700 mt-1">請務必準時還車！</p>
                         </div>
                     </div>
-                    <div class="card p-4 flex gap-4 border-l-4 border-yellow-400">
-                        <div class="time-highlight">18:09</div>
+                    <!-- Event: Tanukikoji -->
+                    <div class="card activity-card p-4 flex gap-4 border-l-4 border-yellow-400">
+                        <div class="time-highlight">20:00</div>
                         <div class="flex-1">
-                            <h4 class="font-bold text-slate-800">狸小路商店街</h4>
-                            <p class="text-sm text-slate-500 mt-1">還車後購物與晚餐。</p>
+                            <h4 class="font-bold text-slate-800">狸小路商店街（晚餐/購物）</h4>
+                            <p class="text-sm text-slate-500 mt-1">還車後步行可達。</p>
                             <button onclick="openMap('狸小路商店街')" class="mt-2 text-xs bg-yellow-50 text-yellow-600 px-3 py-1 rounded-full">導航</button>
                         </div>
                     </div>
@@ -761,30 +951,50 @@
             <div id="plan-page-day5" class="plan-page pt-6">
                 <div id="weather-day-5"></div>
                 <div class="space-y-4">
-                    <div class="card p-4 flex gap-4 border-l-4 border-teal-500 bg-teal-50">
+                    <!-- Travel: JR to Otaru -->
+                    <div class="card travel-card p-4 flex gap-4 border-l-4 border-teal-500 bg-teal-50">
                         <div class="time-highlight bg-teal-500 text-white">08:21</div>
                         <div class="flex-1">
-                            <h4 class="font-bold text-teal-900">札幌站北口 (集合/搭車)</h4>
-                            <p class="text-sm text-teal-700 mt-1">本日搭乘 JR 前往小樽。</p>
+                            <h4 class="font-bold text-teal-900"><i class="fas fa-train mr-1"></i> JR 快速列車</h4>
+                            <p class="text-sm text-teal-700 mt-1">從札幌站前往小樽，約 40 分鐘。</p>
                         </div>
                     </div>
-                    <div class="card p-4 flex gap-4">
+                    <!-- Event: Otaru Canal -->
+                    <div class="card activity-card p-4 flex gap-4 border-l-4 border-sky-500">
                         <div class="time-highlight">10:26</div>
                         <div class="flex-1">
-                            <h4 class="font-bold text-slate-800">小樽運河</h4>
-                            <p class="text-sm text-slate-500 mt-1">運河邊拍照，感受歷史氣氛。</p>
+                            <h4 class="font-bold text-slate-800">小樽運河與周邊</h4>
+                            <p class="text-sm text-slate-500 mt-1">運河邊拍照，逛銀之鐘、北一硝子館。</p>
                             <button onclick="openMap('小樽運河')" class="mt-2 text-xs bg-sky-50 text-sky-600 px-3 py-1 rounded-full">導航</button>
                         </div>
                     </div>
-                    <div class="card p-4 flex gap-4">
+                    <!-- Travel: JR Back to Sapporo -->
+                    <div class="card travel-card p-4 flex gap-4">
+                        <div class="time-highlight bg-green-200 text-green-800">40 Min</div>
+                        <div class="flex-1">
+                            <h4 class="font-bold text-green-800"><i class="fas fa-train mr-1"></i> JR 快速列車</h4>
+                            <p class="text-sm text-green-700 mt-1">從小樽返回札幌。</p>
+                        </div>
+                    </div>
+                    <!-- Event: Hokkaido Jingu -->
+                    <div class="card activity-card p-4 flex gap-4 border-l-4 border-sky-500">
                         <div class="time-highlight">15:01</div>
                         <div class="flex-1">
                             <h4 class="font-bold text-slate-800">北海道神宮</h4>
-                            <p class="text-sm text-slate-500 mt-1">返回札幌後參拜。</p>
+                            <p class="text-sm text-slate-500 mt-1">返回札幌後參拜 (需搭乘地鐵)。</p>
                             <button onclick="openMap('北海道神宮')" class="mt-2 text-xs bg-sky-50 text-sky-600 px-3 py-1 rounded-full">導航</button>
                         </div>
                     </div>
-                    <div class="card p-4 flex gap-4 border-l-4 border-red-400">
+                    <!-- Travel: Subway to Ramen -->
+                    <div class="card travel-card p-4 flex gap-4">
+                        <div class="time-highlight bg-green-200 text-green-800">25 Min</div>
+                        <div class="flex-1">
+                            <h4 class="font-bold text-green-800"><i class="fas fa-train-subway mr-1"></i> 札幌地下鐵</h4>
+                            <p class="text-sm text-green-700 mt-1">移動至晚餐地點。</p>
+                        </div>
+                    </div>
+                    <!-- Event: Dinner -->
+                    <div class="card activity-card p-4 flex gap-4 border-l-4 border-red-400">
                         <div class="time-highlight">17:38</div>
                         <div class="flex-1">
                             <h4 class="font-bold text-slate-800">拉麵 札幌一粒庵（晚餐）</h4>
@@ -799,22 +1009,25 @@
             <div id="plan-page-day6" class="plan-page pt-6">
                 <div id="weather-day-6"></div>
                 <div class="space-y-4">
-                    <div class="card p-4 flex gap-4 border-l-4 border-red-500 bg-red-50">
+                     <!-- Travel: Hotel to Airport -->
+                    <div class="card travel-card p-4 flex gap-4 border-l-4 border-red-500 bg-red-50">
                         <div class="time-highlight bg-red-500 text-white">06:18</div>
                         <div class="flex-1">
-                            <h4 class="font-bold text-red-900">飯店出發 → 機場</h4>
-                            <p class="text-sm text-red-700 mt-1">前往新千歲機場 (CTS)，預留時間較長。</p>
+                            <h4 class="font-bold text-red-900"><i class="fas fa-train mr-1"></i> JR 快速機場線</h4>
+                            <p class="text-sm text-red-700 mt-1">從札幌站前往新千歲機場 (CTS)，約 37 分鐘。</p>
                         </div>
                     </div>
-                    <div class="card p-4 flex gap-4">
+                    <!-- Event: Airport Check-in -->
+                    <div class="card activity-card p-4 flex gap-4 border-l-4 border-sky-500">
                         <div class="time-highlight">07:31</div>
                         <div class="flex-1">
                             <h4 class="font-bold text-slate-800">抵達新千歲機場</h4>
-                            <p class="text-sm text-slate-500 mt-1">機場內早餐與最後採購。</p>
+                            <p class="text-sm text-slate-500 mt-1">辦理登機手續，機場內早餐與最後採購。</p>
                             <button onclick="openMap('新千歲機場')" class="mt-2 text-xs bg-sky-50 text-sky-600 px-3 py-1 rounded-full">導航</button>
                         </div>
                     </div>
-                    <div class="card p-4 flex gap-4">
+                    <!-- Event: Departure -->
+                    <div class="card activity-card p-4 flex gap-4 border-l-4 border-red-500">
                         <div class="time-highlight">09:30</div>
                         <div class="flex-1">
                             <h4 class="font-bold text-slate-800">✈️ 越捷TVJ571 起飛返台</h4>
@@ -867,6 +1080,10 @@
                 </div>
                 
                 <div id="view-packing" class="p-4">
+                    <div class="flex justify-between items-center mb-2">
+                        <h4 class="text-sm font-bold text-slate-500">極地裝備清單 (建議)</h4>
+                        <span class="text-xs text-gray-400">點擊項目打勾/取消</span>
+                    </div>
                     <div id="packing-container" class="space-y-1 bg-white rounded-xl overflow-hidden mb-4 border border-gray-100"></div>
                     <div class="flex gap-2">
                         <input id="new-pack" class="jp-input text-sm" placeholder="新增待打包項目...">
@@ -875,6 +1092,10 @@
                 </div>
                 
                 <div id="view-memo" class="p-4 hidden">
+                    <div class="flex justify-between items-center mb-2">
+                        <h4 class="text-sm font-bold text-slate-500">重要資訊備忘</h4>
+                        <span class="text-xs text-gray-400">例如: 預約號碼, 備用電話</span>
+                    </div>
                     <div id="memo-container" class="space-y-2"></div>
                     <div class="flex gap-2 mt-4">
                         <input id="new-memo" class="jp-input text-sm" placeholder="新增重要備忘...">
